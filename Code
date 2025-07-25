@@ -1,0 +1,204 @@
+#Instalando Biblioteca
+!pip install pandas #para a manipulação dos dados
+!pip install openpyxl pandas
+!pip install numpy #para calculos numericos
+!pip install matplotlib #para graficos simples
+!pip install seaborn #para graficos avançados
+!pip install plotly #para graficos interativos
+!pip install scikit-learn #para normalização dos dados
+!pip install statsmodels #para calculos estaticos
+!pip install gdown # Instala o gdown para conectar ao drive
+
+#Importando as bibliotecas
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import sklearn as sk
+import statsmodels.api as sm
+import gdown
+from statsmodels.graphics.tsaplots import plot_pacf
+from statsmodels.graphics.tsaplots import plot_acf
+
+#Lendo o CSV
+  # Pegando o ID do arquivo no Google Drive
+file_id = '1DwuJCnFzcmT1hRDjC7WEcJ0E50gnQk9o'
+
+# Cria o link para download
+url = f'https://drive.google.com/uc?id={file_id}'
+
+# Fazendo o download do arquivo para o Colab
+output = 'clima.csv' # Nome para o arquivo baixado
+gdown.download(url, output, quiet=False)
+teste = '/content/'+ output
+
+#Testando a leitura
+data = pd.read_csv(teste, encoding='latin1')
+data.head()
+
+#Checando se o CSV veio completo
+data.shape
+
+#Tratando os dados // Definindo os dados que serão utilizados
+df = data.loc[data['Area']=='Brazil']
+
+#Visualizando
+df.head(20)
+
+#Filtrando apenas a mudança de temperatura
+temperatura_data = data[data['Element'] == 'Temperature change']
+
+#Usando o Streamlit para permitir o usuário a escolher o país
+
+
+# Filtrando dados para o Brasil
+temperature_data = temperatura_data[temperatura_data['Area'] == 'Brazil']
+
+# Filtrando dados para o Brasil
+temperatura_data = temperatura_data[temperatura_data['Area'] == 'Brazil']
+
+# Extraindo os anos (colunas Y1961 a Y2019)
+anos = temperatura_data.columns[8:]
+
+# Calculando a média de temperatura por ano
+temperatura_por_ano = temperatura_data[anos].mean(axis=0).astype(float)
+
+# Criando uma série temporal com os anos como índice
+temperatura_series = pd.Series(temperatura_por_ano.values, index=anos)
+
+# Convertendo a série temporal para o tipo datetime
+# Removendo o 'Y' antes de converte-lo em formato de data
+temperatura_series.index = pd.to_datetime(temperatura_series.index.str.replace('Y', ''), format='%Y')
+
+# Visualizando a série temporal
+plt.figure(figsize=(10, 6))
+plt.plot(temperatura_series)
+plt.title('Mudança de Temperatura no Brasil (1961-2019)')
+plt.xlabel('Ano')
+plt.ylabel('Temperatura Média (°C)')
+plt.grid(True)
+plt.show()
+
+#Modelando o SARIMA
+#Importando as bilbiotecas necessárias
+from statsmodels.tsa.arima.model import ARIMA
+import statsmodels.api as sm
+
+#Teste de estacionaridade (Dickey-Fuller)
+from statsmodels.tsa.stattools import adfuller
+
+resultado = adfuller(temperatura_series)
+print('Estatística ADF:', resultado[0])
+print('p-valor:', resultado[1])
+
+# Aplicando a primeira diferenciação
+temperatura_diff = temperatura_series.diff().dropna()
+
+# Fazer o teste de Dickey-Fuller na série diferenciada
+resultado = adfuller(temperatura_diff)
+print('Estatística ADF após diferenciação:', resultado[0])
+print('p-valor após diferenciação:', resultado[1])
+
+#Verificando Sazonalidade
+import statsmodels.api as sm
+
+# Decompondo a série temporal (P)
+decomposicao = sm.tsa.seasonal_decompose(temperatura_series, model='additive')
+decomposicao.plot()
+plt.show()
+
+#Diferenciação na Sazonal
+temperatura_dif_sazonal = temperatura_series.diff(12).diff().dropna()
+
+# Teste de Dickey-Fuller na série diferenciada sazonal
+resultado = adfuller(temperatura_dif_sazonal)
+print('Estatística ADF após diferenciação sazonal:', resultado[0])
+print('p-valor após diferenciação sazonal:', resultado[1])
+
+#Difinindo P e Q
+plt.subplot(1, 2, 2)
+plot_pacf(temperatura_dif_sazonal, lags=20)
+plt.title('PACF após diferenciação sazonal e adicional')
+plt.show()
+
+#Modelando o SARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+# Definindo os parâmetros do modelo
+p = 2  # Número de AR
+d = 1  # Número de diferenciações
+q = 2  # Número de MA
+P = 2  # Número de AR sazonal
+D = 1  # Número de diferenciações sazonais
+Q = 2  # Número de MA sazonal
+S = 12  # Período sazonal
+
+# Ajustando o modelo SARIMA
+modelo_sarima = SARIMAX(temperatura_series, order=(p, d, q), seasonal_order=(P, D, Q, S))
+resultado_sarima = modelo_sarima.fit()
+
+# Resumo do modelo
+print(resultado_sarima.summary())
+
+# Fazendo previsões
+# Separando os dados de treino e teste
+train = temperatura_series[:'2010']
+test = temperatura_series['2011':]
+
+# Ajustando o modelo no conjunto de treino
+modelo_sarima_train = SARIMAX(train, order=(p, d, q), seasonal_order=(P, D, Q, S))
+resultado_sarima_train = modelo_sarima_train.fit()
+
+# Fazendo previsões
+previsoes_sarima = resultado_sarima_train.forecast(steps=len(test))
+previsoes_sarima = pd.Series(previsoes_sarima, index=test.index)
+
+# Visualizando os resultados
+plt.figure(figsize=(10, 6))
+plt.plot(train, label='Treino', color='blue')
+plt.plot(test, label='Teste', color='orange')
+plt.plot(previsoes_sarima, label='Previsões SARIMA', color='green')
+plt.title('Previsão de Mudança de Temperatura no Brasil com SARIMA')
+plt.xlabel('Ano')
+plt.ylabel('Temperatura Média (°C)')
+plt.axvline(x=pd.to_datetime('2010'), color='red', linestyle='--', label='Divisão Treino/Teste')
+plt.legend()
+plt.grid()
+plt.show()
+
+# Avaliando o modelo
+from sklearn.metrics import mean_squared_error
+
+mse_sarima = mean_squared_error(test, previsoes_sarima)
+print(f'Mean Squared Error (SARIMA): {mse_sarima}')
+
+#Prevendo até 2030
+# Ajustando o modelo com dados de 2000 a 2019 para previsão
+train_previsao = temperatura_series['2000':]  # Dados de 2000 a 2019
+
+# Ajustando o modelo SARIMA
+previsao_sarima_train = SARIMAX(train_previsao, order=(p, d, q), seasonal_order=(P, D, Q, S))
+resultado_previsao_sarima_train = previsao_sarima_train.fit()
+
+# Fazendo previsões até 2030
+n_steps = 16  # Para prever de 2020 a 2030
+previsoes_sarima_futuras = resultado_previsao_sarima_train.forecast(steps=n_steps)
+
+# Criando índices para os anos futuros
+anos_futuros = pd.date_range(start='2020', periods=n_steps, freq='Y')
+
+# Criando uma série para as previsões
+previsoes_sarima_futuras_series = pd.Series(previsoes_sarima_futuras, index=anos_futuros)
+
+# Visualizando os resultados
+plt.figure(figsize=(10, 6))
+plt.plot(temperatura_series, label='Temperaturas Históricas', color='blue')
+plt.plot(previsoes_sarima_futuras, label='Previsões (2020-2030)', color='green')
+plt.title('Previsão de Mudança de Temperatura no Brasil com SARIMA (2020-2035)')
+plt.xlabel('Ano')
+plt.ylabel('Temperatura Média (°C)')
+plt.axvline(x=pd.to_datetime('2019'), color='red', linestyle='--', label='Fim de Dados Históricos')
+plt.legend()
+plt.grid()
+plt.show()
